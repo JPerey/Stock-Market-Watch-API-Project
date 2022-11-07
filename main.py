@@ -1,60 +1,90 @@
 import requests
-import time
+from datetime import datetime
 import os
+from twilio.rest import Client
 
 API_KEY = os.environ.get("AV_API_KEY")
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
+TWILIO_SID = os.environ.get("TWILIO_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE = os.environ.get("TWILIO_PHONE")
 
 STOCK_NAME = "TSLA"
-COMPANY_NAME = "Tesla Inc"
 
-STOCK_ENDPOINT = "https://www.alphavantage.co/query"
-NEWS_ENDPOINT = "https://newsapi.org/v2/everything"
+# Functions
 
-    ## STEP 1: Use https://www.alphavantage.co/documentation/#daily
-# When stock price increase/decreases by 5% between yesterday and the day before yesterday then print("Get News").
-
-# replace the "demo" apikey below with your own key from https://www.alphavantage.co/support/#api-key
-url = f'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={STOCK_NAME}&interval=60min&apikey={API_KEY}'
-r = requests.get(url)
-data = r.json()
-
-print(data)
-
-#TODO 1. - Get yesterday's closing stock price. Hint: You can perform list comprehensions on Python dictionaries. e.g. [new_value for (key, value) in dictionary.items()]
-
-#TODO 2. - Get the day before yesterday's closing stock price
-
-#TODO 3. - Find the positive difference between 1 and 2. e.g. 40 - 20 = -20, but the positive difference is 20. Hint: https://www.w3schools.com/python/ref_func_abs.asp
-
-#TODO 4. - Work out the percentage difference in price between closing price yesterday and closing price the day before yesterday.
-
-#TODO 5. - If TODO4 percentage is greater than 5 then print("Get News").
-
-    ## STEP 2: https://newsapi.org/ 
-    # Instead of printing ("Get News"), actually get the first 3 news pieces for the COMPANY_NAME. 
-
-#TODO 6. - Instead of printing ("Get News"), use the News API to get articles related to the COMPANY_NAME.
-
-#TODO 7. - Use Python slice operator to create a list that contains the first 3 articles. Hint: https://stackoverflow.com/questions/509211/understanding-slice-notation
+def get_current_date():
+    current_date_data = str(datetime.now())
+    print(f"current date: {current_date_data}")
+    current_split = current_date_data.split()
+    current_date = current_split[0]
+    print(f"current date: {current_date}")
+    return current_date
 
 
-    ## STEP 3: Use twilio.com/docs/sms/quickstart/python
-    #to send a separate message with each article's title and description to your phone number. 
+def get_stocks_closing() -> []:
+    url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_' \
+          f'ADJUSTED&symbol={STOCK_NAME}&apikey={API_KEY}'
+    r = requests.get(url)
+    r.raise_for_status()
+    data = r.json()["Time Series (Daily)"]
+    closing_prices = [value['4. close'] for (key, value) in data.items()]
+    print(f"closing prices: {closing_prices}")
 
-#TODO 8. - Create a new list of the first 3 article's headline and description using list comprehension.
-
-#TODO 9. - Send each article as a separate message via Twilio. 
+    return closing_prices
 
 
+def get_specific_closing_prices(dates_to_check):
+    dates_to_check1 = dates_to_check[0]
+    dates_to_check2 = dates_to_check[1]
+    return dates_to_check1, dates_to_check2
 
-#Optional TODO: Format the message like this: 
-"""
-TSLA: 🔺2%
-Headline: Were Hedge Funds Right About Piling Into Tesla Inc. (TSLA)?. 
-Brief: We at Insider Monkey have gone over 821 13F filings that hedge funds and prominent investors are required to file by the SEC The 13F filings show the funds' and investors' portfolio positions as of March 31st, near the height of the coronavirus market crash.
-or
-"TSLA: 🔻5%
-Headline: Were Hedge Funds Right About Piling Into Tesla Inc. (TSLA)?. 
-Brief: We at Insider Monkey have gone over 821 13F filings that hedge funds and prominent investors are required to file by the SEC The 13F filings show the funds' and investors' portfolio positions as of March 31st, near the height of the coronavirus market crash.
-"""
 
+def stock_price_difference(day1, day2):
+    price_dif = float(day1) - float(day2)
+    percentage_dif = abs(price_dif / float(day2))
+    print(f"percentage dif: {percentage_dif}")
+    return percentage_dif
+
+
+def get_news(current_date_result):
+    url = f"https://newsapi.org/v2/everything?q={STOCK_NAME}&from={current_date_result}&language=en&sortBy" \
+          f"=publishedAt&apiKey={NEWS_API_KEY}"
+
+    r = requests.get(url)
+    r.raise_for_status()
+    data = r.json()["articles"][:3]
+    data_sources = [article["source"]["name"] for article in data]
+    data_titles = [article["title"] for article in data]
+    data_urls = [article["url"] for article in data]
+
+    print(data)
+    print(f"sources: {data_sources}")
+    print(f"article titles: {data_titles}")
+    print(f"urls: {data_urls}")
+    return data_sources, data_titles, data_urls
+
+
+def send_messages(sources, titles, urls, stock_price_dif):
+    client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
+    i = 0
+    for title_name in titles:
+        message = client.messages \
+            .create(
+            body=f"{STOCK_NAME}: {stock_price_dif}\nSource: {sources[i]}Headline: \n{title_name}\nLink: {urls[i]}️",
+            from_=f"{TWILIO_PHONE}",
+            to='+16502191358'
+        )
+        i += 1
+        print(message)
+
+
+current_date_result = get_current_date()
+closing_prices_result = get_stocks_closing()
+previous_day_closing, previous_day_closing2 = get_specific_closing_prices(closing_prices_result)
+stock_price_difference_result = stock_price_difference(previous_day_closing, previous_day_closing2)
+# stock_price_difference_result_auto = 0.06
+
+if stock_price_difference_result >= 0.05:
+    sources, titles, urls = get_news(current_date_result)
+    send_messages(sources, titles, urls, stock_price_difference_result)
